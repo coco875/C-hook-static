@@ -1,0 +1,1 @@
+gcc -o hook main.c list.c -Wall

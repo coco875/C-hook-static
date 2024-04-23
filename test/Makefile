@@ -1,6 +1,6 @@
 CC := ./hook gcc
 CFLAGS := -Wall -Wextra -Werror -I. -O3 -std=c11 -g
-SRC := $(shell find src -type f -name "*.c")
+SRC := src/main.c # $(shell find src -type f -name "*.c")
 OBJ := $(SRC:.c=.o)
 
 MODS_DIR := mods

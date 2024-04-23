@@ -90,11 +90,20 @@ char *get_c_file(int argc, char *argv[]) {
     return NULL;
 }
 
-char *gen_out_name(char *file_name) {
-    char *out_name = malloc(strlen(file_name) + 5);
-    strcpy(out_name, file_name);
-    strcat(out_name, ".out");
-    return out_name;
+void gen_out_name(char *file_name, char *out_name) {
+    char last_char = '\0';
+    for (int i = 0; i < strlen(file_name); i++) {
+        if (file_name[i] == 'c' && last_char == '.') {
+            out_name[i] = 'o';
+            out_name[i+1] = 'u';
+            out_name[i+2] = 't';
+            out_name[i+3] = '.';
+            out_name[i+4] = 'c';
+            break;
+        }
+        out_name[i] = file_name[i];
+        last_char = file_name[i];
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -107,7 +116,8 @@ int main(int argc, char *argv[]) {
     FILE *file = fopen(file_name, "r");
 
     // char file_out_name[] = "test/src/main.out.c";
-    char *file_out_name = gen_out_name(file_name);
+    char file_out_name[CHUNK_SIZE] = "";
+    gen_out_name(file_name, file_out_name);
     FILE *file_out = fopen(file_out_name, "w");
 
     load_list_hook("hook.bin", file_name);
@@ -117,6 +127,10 @@ int main(int argc, char *argv[]) {
 
     char arg[CHUNK_SIZE] = "";
     int arg_len = 0;
+
+    char full_arg_list[16][CHUNK_SIZE] = {""};
+    int full_arg_list_idx = 0;
+    int full_arg_list_len = 0;
 
     int arg_num = 0;
     Hook *hook = malloc(sizeof(Hook));
@@ -156,6 +170,12 @@ int main(int argc, char *argv[]) {
                         arg_len = 0;
                         finalise_hook = true;
                     }
+                    if (parenthesis_count == 0) {
+                        printf("function name: %s\n", function_name);
+                        for (int i = 0; i <= full_arg_list_idx; i++) {
+                            printf("Arg: %s\n", full_arg_list[i]);
+                        }
+                    }
                 }
                 if (char_ == '}') { // end of code block
                     if (in_function && bracket_count == 1) {
@@ -187,43 +207,72 @@ int main(int argc, char *argv[]) {
                     arg[arg_len++] = char_;
                 }
             }
+
             
+            if (parenthesis_count>0 && !(char_ == ',' && !in_quote && parenthesis_count == 1)) {
+                full_arg_list[full_arg_list_idx][full_arg_list_len++] = char_;
+            }
+
+            if (char_ == ',' && !in_quote && parenthesis_count == 1) {
+                full_arg_list_idx++;
+                full_arg_list_len = 0;
+            }
+
             if (!in_quote) {
+
                 if (char_ == '{') { // start of code block
                     if (parenthesis_count == 0 && bracket_count == 0 && function_name[0] != '\0') {
                         printf("Function: %s\n", function_name);
-                        fwrite("{\n", 1, 2, file_out);
+                        bool hook_inserted = false;
                         in_function = true;
                         ListElement *element = list_hook.head;
                         while (element) {
                             Hook *hook = element->data;
-                            if (strcmp(hook->function, function_name) == 0) { // match_file(file_name, hook->file)
-                                if (strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
-                                    printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
-                                    fprintf(file_out, "    %s();\n", hook->function_call);
+                            if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
+                                if (!hook_inserted) {
+                                    fwrite("{\n", 1, 2, file_out);
+                                    hook_inserted = true;
                                 }
+                                printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
+                                fprintf(file_out, "    %s();\n", hook->function_call);
                             }
                             element = element->next;
                         }
-                        fprintf(file_out, "    void* result = original_%s();\n", function_name);
+                        if (hook_inserted) {
+                            fprintf(file_out, "    void* result = original_%s();\n", function_name);
+                        }
                         ListElement *element_ = list_hook.head;
                         while (element_) {
                             Hook *hook = element_->data;
-                            if (strcmp(hook->function, function_name) == 0) { // match_file(file_name, hook->file)
-                                if (strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
-                                    printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
-                                    fprintf(file_out, "    %s();\n", hook->function_call);
+                            if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
+                                if (!hook_inserted) {
+                                    fwrite("{\n", 1, 2, file_out);
+                                    fprintf(file_out, "    void* result = original_%s();\n", function_name);
+                                    hook_inserted = true;
                                 }
+                                printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
+                                fprintf(file_out, "    %s();\n", hook->function_call);
                             }
                             element_ = element_->next;
                         }
-
-                        fprintf(file_out, "    return result;\n}\nvoid* original_%s() ", function_name);
+                        if (hook_inserted) {
+                            fprintf(file_out, "    return result;\n}\ninline void* original_%s() ", function_name);
+                        }
                     }
                     bracket_count++;
                 }
 
                 if (char_ == '(') { // start of function call
+                    if (parenthesis_count == 0) {
+                        for (int i = 0; i <= full_arg_list_idx; i++) {
+                            int size = 0;
+                            while (full_arg_list[i][size] != '\0') {
+                                full_arg_list[i][size++] = '\0';
+                            }
+                        }
+                        full_arg_list_len = 0;
+                        full_arg_list_idx = 0;
+                    }
                     if (parenthesis_count == 0 && bracket_count == 0) {
                         strcpy(function_name, word_name);
                     }

@@ -54,3 +54,7 @@ void list_free(List *list) {
     list->tail = NULL;
     list->size = 0;
 }
+
+ListElement *list_iterate(ListElement *element) {
+    return element->next;
+}

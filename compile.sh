@@ -1,1 +1,1 @@
-gcc -o hook main.c list.c -Wall
+gcc -o test/hook main.c list.c -Wall

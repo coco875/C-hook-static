@@ -1,8 +1,12 @@
 #include <stdio.h>
 #include "hook.h"
 
+int sub(int a, int b) {
+    return a - b;
+}
+
 int add(int a, int b) {
-    return a + b;
+    return sub(a, -b);
 }
 
 int main() {

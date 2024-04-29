@@ -125,14 +125,10 @@ int main(int argc, char *argv[]) {
     char str_[CHUNK_SIZE] = "";
     bool in_quote = false;
 
-    char arg[CHUNK_SIZE] = "";
-    int arg_len = 0;
-
     char full_arg_list[16][CHUNK_SIZE] = {""};
     int full_arg_list_idx = 0;
     int full_arg_list_len = 0;
 
-    int arg_num = 0;
     Hook *hook = malloc(sizeof(Hook));
     strcpy(hook->source, file_name);
 
@@ -163,11 +159,10 @@ int main(int argc, char *argv[]) {
                     if (in_hook_level == parenthesis_count && in_hook) {
                         in_hook = false;
 
-                        strcpy(hook->at, arg);
-                        for (int i = 0; i < arg_len; i++) {
-                            arg[i] = '\0';
-                        }
-                        arg_len = 0;
+                        strcpy(hook->file, full_arg_list[0]);
+                        strcpy(hook->function, full_arg_list[1]);
+                        strcpy(hook->at, full_arg_list[2]);
+
                         finalise_hook = true;
                     }
                     if (parenthesis_count == 0) {
@@ -187,29 +182,8 @@ int main(int argc, char *argv[]) {
                     bracket_count--;
                 }
             }
-
-            if (in_hook && char_ != ' ' && char_ != '"' && char_ != '\n') { // inside a hook function
-                // printf("%c", char_);
-                if (char_==',' && !in_quote && parenthesis_count == in_hook_level + 1) {
-                    if (arg_num == 0) {
-                        // printf("Hook file: %s\n", arg);
-                        strcpy(hook->file, arg);
-                    } else if (arg_num == 1) {
-                        // printf("Hook function: %s\n", arg);
-                        strcpy(hook->function, arg);
-                    }
-                    for (int i = 0; i < arg_len; i++) {
-                        arg[i] = '\0';
-                    }
-                    arg_len = 0;
-                    arg_num++;
-                } else {
-                    arg[arg_len++] = char_;
-                }
-            }
-
             
-            if (parenthesis_count>0 && !(char_ == ',' && !in_quote && parenthesis_count == 1)) {
+            if (parenthesis_count>0 && !(char_ == ',' && !in_quote && parenthesis_count == 1) && char_!='"' && !(char_ == ' ' && (full_arg_list[full_arg_list_idx][0] == '\0' || full_arg_list[full_arg_list_idx][full_arg_list_len-1] == ',' || full_arg_list[full_arg_list_idx][full_arg_list_len-1] == ' '))) {
                 full_arg_list[full_arg_list_idx][full_arg_list_len++] = char_;
             }
 
@@ -256,7 +230,14 @@ int main(int argc, char *argv[]) {
                             element_ = element_->next;
                         }
                         if (hook_inserted) {
-                            fprintf(file_out, "    return result;\n}\ninline void* original_%s() ", function_name);
+                            fprintf(file_out, "    return result;\n}\ninline void* original_%s(", function_name);
+                            for (int i = 0; i <= full_arg_list_idx; i++) {
+                                fprintf(file_out, "%s", full_arg_list[i]);
+                                if (i < full_arg_list_idx) {
+                                    fprintf(file_out, ", ");
+                                }
+                            }
+                            fprintf(file_out, ") ", function_name);
                         }
                     }
                     bracket_count++;
@@ -288,7 +269,6 @@ int main(int argc, char *argv[]) {
                         printf("\nHook: %s %s %s %s\n", hook->file, hook->function, hook->at, hook->function_call);
                         list_append(&list_hook, hook);
                         hook = NULL;
-                        arg_num = 0;
                         finalise_hook = false;
                     }
                     parenthesis_count++;

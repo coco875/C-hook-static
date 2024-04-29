@@ -1,6 +1,8 @@
 #include <hook.h>
 #include "main.h"
 
+#define TRUE 1
+
 HOOK("src/main.c", add, AT(FUNCTION_RETURN))
 int hook_add_return(int ret) {
     return ret + 1;

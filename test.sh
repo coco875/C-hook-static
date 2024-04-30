@@ -1,1 +1,1 @@
-make -C test test
+make -C test

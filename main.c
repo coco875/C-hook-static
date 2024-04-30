@@ -142,17 +142,22 @@ void insert_arg(FILE*file,char full_arg_list[16][CHUNK_SIZE], int num_args) {
     }
 }
 
-int main(int argc, char *argv[]) {
-    // char file_name[] = "test/src/main.c";
-    char *file_name = get_c_file(argc, argv);
-    if (!file_name) {
-        printf("No C file found\n");
-        return 1;
-    }
+bool insert_header_hook(FILE* file) {
+    fwrite("{\n", 1, 2, file);
+    return true;
+}
+
+void insert_original_function(FILE* file, char *return_type, char* function_name,char full_arg_list[16][CHUNK_SIZE], int full_arg_list_idx) {
+    fprintf(file, "    %sresult = original_%s(", return_type, function_name);
+    insert_arg(file, full_arg_list, full_arg_list_idx+1);
+    fprintf(file, ");\n");
+}
+
+char* get_and_apply_hooks(char *file_name) {
     FILE *file = fopen(file_name, "r");
 
     // char file_out_name[] = "test/src/main.out.c";
-    char file_out_name[CHUNK_SIZE] = "";
+    char *file_out_name = malloc(strlen(file_name)+5);
     gen_out_name(file_name, file_out_name);
     FILE *file_out = fopen(file_out_name, "w");
 
@@ -219,10 +224,10 @@ int main(int argc, char *argv[]) {
                         finalise_hook = true;
                     }
                     if (parenthesis_count == 0) {
-                        printf("function name: %s\n", function_name);
-                        for (int i = 0; i <= full_arg_list_idx; i++) {
-                            printf("Arg: %s\n", full_arg_list[i]);
-                        }
+                        // printf("function name: %s\n", function_name);
+                        // for (int i = 0; i <= full_arg_list_idx; i++) {
+                        //     printf("Arg: %s\n", full_arg_list[i]);
+                        // }
                     }
                 }
                 if (char_ == '}') { // end of code block
@@ -272,7 +277,7 @@ int main(int argc, char *argv[]) {
 
                 if (char_ == '{') { // start of code block
                     if (parenthesis_count == 0 && bracket_count == 0 && function_name[0] != '\0') {
-                        printf("Function: %s\n", function_name);
+                        // printf("Function: %s\n", function_name);
                         bool hook_inserted = false;
                         in_function = true;
                         char return_type_[CHUNK_SIZE] = "";
@@ -282,10 +287,9 @@ int main(int argc, char *argv[]) {
                             Hook *hook = element->data;
                             if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
                                 if (!hook_inserted) {
-                                    fwrite("{\n", 1, 2, file_out);
-                                    hook_inserted = true;
+                                    hook_inserted = insert_header_hook(file_out);
                                 }
-                                printf("Hook found: %s %s %s %d\n", hook->file, hook->function, hook->at, hook->num_args);
+                                // printf("Hook found: %s %s %s %d\n", hook->file, hook->function, hook->at, hook->num_args);
                                 fprintf(file_out, "    %s(", hook->function_call);
                                 insert_arg(file_out, full_arg_list, hook->num_args);
                                 fprintf(file_out, ");\n");
@@ -293,22 +297,17 @@ int main(int argc, char *argv[]) {
                             element = element->next;
                         }
                         if (hook_inserted) {
-                            fprintf(file_out, "    %sresult = original_%s(", return_type_, function_name);
-                            insert_arg(file_out, full_arg_list, full_arg_list_idx+1);
-                            fprintf(file_out, ");\n");
+                            insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx);
                         }
                         ListElement *element_ = list_hook.head;
                         while (element_) {
                             Hook *hook = element_->data;
                             if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
                                 if (!hook_inserted) {
-                                    fwrite("{\n", 1, 2, file_out);
-                                    hook_inserted = true;
-                                    fprintf(file_out, "    %sresult = original_%s(", return_type_,function_name);
-                                    insert_arg(file_out, full_arg_list, full_arg_list_idx+1);
-                                    fprintf(file_out, ");\n");
+                                    hook_inserted = insert_header_hook(file_out);
+                                    insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx);
                                 }
-                                printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
+                                // printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
                                 fprintf(file_out, "    %s(", hook->function_call);
                                 insert_arg(file_out, full_arg_list, hook->num_args);
                                 fprintf(file_out, ");\n");
@@ -316,7 +315,7 @@ int main(int argc, char *argv[]) {
                             element_ = element_->next;
                         }
                         if (hook_inserted) {
-                            fprintf(file_out, "    return result;\n}\ninline %soriginal_%s(", return_type_, function_name);
+                            fprintf(file_out, "    return result;\n}\n\n%soriginal_%s(", return_type_, function_name);
                             for (int i = 0; i <= full_arg_list_idx; i++) {
                                 fprintf(file_out, "%s", full_arg_list[i]);
                                 if (i < full_arg_list_idx) {
@@ -344,7 +343,7 @@ int main(int argc, char *argv[]) {
                         strcpy(function_name, word_name);
                     }
                     if (strcmp(word_name, HOOK_KEYWORD) == 0) {
-                        printf("Hook detected\n");
+                        // printf("Hook detected\n");
                         hook = malloc(sizeof(Hook));
                         strcpy(hook->source, file_name);
                         in_hook = true;
@@ -353,7 +352,7 @@ int main(int argc, char *argv[]) {
                     if (finalise_hook) {
                         strcpy(hook->function_call, word_name);
                         hook->num_args = full_arg_list_idx+1;
-                        printf("\nHook: %s %s %s %s\n", hook->file, hook->function, hook->at, hook->function_call);
+                        // printf("\nHook: %s %s %s %s\n", hook->file, hook->function, hook->at, hook->function_call);
                         list_append(&list_hook, hook);
                         hook = NULL;
                         finalise_hook = false;
@@ -383,4 +382,39 @@ int main(int argc, char *argv[]) {
     }
 
     save_list_hook("hook.bin");
+    return file_out_name;
+}
+
+int main(int argc, char *argv[]) {
+    char **new_arg = malloc(sizeof(char*) * argc);
+
+    for (int i = 1; i < argc; i++) {
+        if (strstr(argv[i], ".c")) {
+            new_arg[i-1] = get_and_apply_hooks(argv[i]);
+        } else {
+            new_arg[i-1] = argv[i];
+        }
+    }
+
+    new_arg[argc-1] = NULL;
+
+    int len_command = 0;
+    for (int i = 0; i < argc-1; i++) {
+        len_command += strlen(new_arg[i])+1;
+    }
+
+    char command[len_command];
+    int command_idx = 0;
+    for (int i = 0; i < argc-1; i++) {
+        for (int j = 0; j < strlen(new_arg[i]); j++) {
+            command[command_idx++] = new_arg[i][j];
+        }
+        command[command_idx++] = ' ';
+    }
+
+    command[command_idx] = '\0';
+
+    printf("Command: %s\n", command);
+    
+    return system(command);
 }

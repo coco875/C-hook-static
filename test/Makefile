@@ -1,5 +1,6 @@
+all: test
 CC := ./hook gcc
-CFLAGS := -Wall -Wextra -Werror -I. -O3 -std=c11 -g
+CFLAGS := -Wall -Wextra -Werror -I. -O3
 SRC := src/main.c # $(shell find src -type f -name "*.c")
 OBJ := $(SRC:.c=.o)
 
@@ -13,4 +14,7 @@ $(foreach inc,$(MOD_MAKE_INCLUDES),$(eval include $(inc)))
 	$(CC) $(CFLAGS) -c $< -o $@
 
 test: $(OBJ)
-	$(CC) $^ -o $@ $(CFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@
+
+clean:
+	rm -f test $(OBJ)

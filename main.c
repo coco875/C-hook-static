@@ -36,13 +36,13 @@ List list_hook = {NULL, NULL, 0};
     || char_ == '\t' )
 
 typedef struct {
-    char source[CHUNK_SIZE];
-    char file[CHUNK_SIZE];
-    char function[CHUNK_SIZE];
-    char at[CHUNK_SIZE];
+    char source[STR_SIZE];
+    char file[STR_SIZE];
+    char function[STR_SIZE];
+    char at[STR_SIZE];
     bool cancelable;
     int priority;
-    char function_call[CHUNK_SIZE];
+    char function_call[STR_SIZE];
     int num_args;
 } Hook;
 
@@ -133,7 +133,7 @@ void copy_before_lastword(char *str, char *str_) {
     }
 }
 
-void insert_arg(FILE*file,char full_arg_list[16][CHUNK_SIZE], int num_args) {
+void insert_arg(FILE*file,char full_arg_list[16][STR_SIZE], int num_args) {
     for (int i = 0; i < num_args; i++) {
         fprintf(file, "%s", &full_arg_list[i][get_lastword(full_arg_list[i])]);
         if (i < num_args-1) {
@@ -147,7 +147,7 @@ bool insert_header_hook(FILE* file) {
     return true;
 }
 
-void insert_original_function(FILE* file, char *return_type, char* function_name,char full_arg_list[16][CHUNK_SIZE], int full_arg_list_idx) {
+void insert_original_function(FILE* file, char *return_type, char* function_name,char full_arg_list[16][STR_SIZE], int full_arg_list_idx) {
     fprintf(file, "    %sresult = original_%s(", return_type, function_name);
     insert_arg(file, full_arg_list, full_arg_list_idx+1);
     fprintf(file, ");\n");
@@ -163,24 +163,24 @@ char* get_and_apply_hooks(char *file_name) {
 
     load_list_hook("hook.bin", file_name);
 
-    char str_[CHUNK_SIZE] = "";
+    char str_[STR_SIZE] = "";
     bool in_quote = false;
 
-    char full_arg_list[16][CHUNK_SIZE] = {""};
+    char full_arg_list[16][STR_SIZE] = {""};
     int full_arg_list_idx = 0;
     int full_arg_list_len = 0;
 
     Hook *hook = malloc(sizeof(Hook));
     strcpy(hook->source, file_name);
 
-    char word_name[CHUNK_SIZE] = "";
+    char word_name[STR_SIZE] = "";
     int word_name_len = 0;
     bool end_of_word = false;
 
-    char function_name[CHUNK_SIZE] = "";
+    char function_name[STR_SIZE] = "";
     bool in_function = false;
 
-    char return_type[CHUNK_SIZE] = "";
+    char return_type[STR_SIZE] = "";
     int return_type_len = 0;
     bool in_return_type = true;
     bool start_get_return_type = false;
@@ -188,7 +188,7 @@ char* get_and_apply_hooks(char *file_name) {
     bool in_hook = false;
     int in_hook_level = 0;
     bool finalise_hook = false;
-    for (int size = 0; (size = fread(str_, 1, CHUNK_SIZE, file)) > 0; ) {
+    for (int size = 0; (size = fread(str_, 1, STR_SIZE, file)) > 0; ) {
         for (int i = 0; i < size; i++) {
             char char_ = str_[i];
             if (char_ == '"') {
@@ -280,7 +280,7 @@ char* get_and_apply_hooks(char *file_name) {
                         // printf("Function: %s\n", function_name);
                         bool hook_inserted = false;
                         in_function = true;
-                        char return_type_[CHUNK_SIZE] = "";
+                        char return_type_[STR_SIZE] = "";
                         copy_before_lastword(return_type, return_type_);
                         ListElement *element = list_hook.head;
                         while (element) {

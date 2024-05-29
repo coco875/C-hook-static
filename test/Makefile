@@ -14,7 +14,7 @@ $(foreach inc,$(MOD_MAKE_INCLUDES),$(eval include $(inc)))
 	$(CC) $(CFLAGS) -c $< -o $@
 
 test: $(OBJ)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) -o $@ $^ $(CFLAGS)
 
 clean:
 	rm -f test $(OBJ)

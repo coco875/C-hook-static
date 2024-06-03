@@ -134,7 +134,7 @@ void copy_before_lastword(char *str, char *str_) {
     }
 }
 
-void insert_arg(FILE*file,char full_arg_list[16][STR_SIZE], int num_args) {
+void insert_arg(FILE* file, char full_arg_list[16][STR_SIZE], int num_args) {
     for (int i = 0; i < num_args; i++) {
         fprintf(file, "%s", &full_arg_list[i][get_lastword(full_arg_list[i])]);
         if (i < num_args-1) {
@@ -143,12 +143,36 @@ void insert_arg(FILE*file,char full_arg_list[16][STR_SIZE], int num_args) {
     }
 }
 
+void insert_function(FILE* file_out, Hook *hook, char full_arg_list[16][STR_SIZE]){
+    fprintf(file_out, "    void %s(", hook->function_call);
+    for (int i = 0; i < hook->num_args; i++) {
+        fprintf(file_out, "%s", full_arg_list[i]);
+        if (i < hook->num_args-1) {
+            fprintf(file_out, ", ");
+        }
+    }
+    fprintf(file_out, ");\n");
+
+    fprintf(file_out, "    %s(", hook->function_call);
+    insert_arg(file_out, full_arg_list, hook->num_args);
+    fprintf(file_out, ");\n");
+}
+
 bool insert_header_hook(FILE* file) {
     fwrite("{\n", 1, 2, file);
     return true;
 }
 
 void insert_original_function(FILE* file, char *return_type, char* function_name,char full_arg_list[16][STR_SIZE], int full_arg_list_idx, bool function_return) {
+    fprintf(file, "    %soriginal_%s(", return_type, function_name);
+    for (int i = 0; i <= full_arg_list_idx; i++) {
+        fprintf(file, "%s", full_arg_list[i]);
+        if (i < full_arg_list_idx) {
+            fprintf(file, ", ");
+        }
+    }
+    fprintf(file, ");\n");
+
     if (function_return) {
         fprintf(file, "    %sresult = original_%s(", return_type, function_name);
     } else {
@@ -303,9 +327,7 @@ char* get_and_apply_hooks(char *file_name) {
                                     hook_inserted = insert_header_hook(file_out);
                                 }
                                 // printf("Hook found: %s %s %s %d\n", hook->file, hook->function, hook->at, hook->num_args);
-                                fprintf(file_out, "    %s(", hook->function_call);
-                                insert_arg(file_out, full_arg_list, hook->num_args);
-                                fprintf(file_out, ");\n");
+                                insert_function(file_out, hook, full_arg_list);
                             }
                             element = element->next;
                         }
@@ -321,9 +343,7 @@ char* get_and_apply_hooks(char *file_name) {
                                     insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
                                 }
                                 // printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
-                                fprintf(file_out, "    %s(", hook->function_call);
-                                insert_arg(file_out, full_arg_list, hook->num_args);
-                                fprintf(file_out, ");\n");
+                                insert_function(file_out, hook, full_arg_list);
                             }
                             element_ = element_->next;
                         }
@@ -400,11 +420,18 @@ char* get_and_apply_hooks(char *file_name) {
     }
 
     save_list_hook("hook.bin");
+    fclose(file);
+    fclose(file_out);
 
     printf("File modified: %s %d\n", file_name,file_modified);
 
     if (!file_modified) {
-        remove(file_out_name);
+        if (remove(file_out_name) == 0) {
+            printf("File removed: %s\n", file_out_name);
+        } else {
+            printf("File not removed: %s\n", file_out_name);
+            exit(1);
+        }
         return file_name;
     }
     return file_out_name;

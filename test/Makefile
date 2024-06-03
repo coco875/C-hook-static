@@ -1,6 +1,6 @@
 all: test
 CC := ./hook gcc
-CFLAGS := -Wall -Wextra -Werror -I. -O3
+CFLAGS := -Wall -Wextra -Werror -I. -O3 -I../include
 SRC := src/main.c # $(shell find src -type f -name "*.c")
 OBJ := $(SRC:.c=.o)
 

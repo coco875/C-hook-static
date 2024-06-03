@@ -193,6 +193,8 @@ char* get_and_apply_hooks(char *file_name) {
     bool in_hook = false;
     int in_hook_level = 0;
     bool finalise_hook = false;
+
+    bool file_modified = false;
     for (int size = 0; (size = fread(str_, 1, CHUNK_SIZE, file)) > 0; ) {
         for (int i = 0; i < size; i++) {
             char char_ = str_[i];
@@ -339,6 +341,7 @@ char* get_and_apply_hooks(char *file_name) {
                             }
                             fprintf(file_out, ") ");
                         }
+                        file_modified = file_modified || hook_inserted;
                     }
                     bracket_count++;
                 }
@@ -397,6 +400,13 @@ char* get_and_apply_hooks(char *file_name) {
     }
 
     save_list_hook("hook.bin");
+
+    printf("File modified: %s %d\n", file_name,file_modified);
+
+    if (!file_modified) {
+        remove(file_out_name);
+        return file_name;
+    }
     return file_out_name;
 }
 

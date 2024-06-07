@@ -158,6 +158,61 @@ void insert_function(FILE* file_out, Hook *hook, char full_arg_list[16][STR_SIZE
     fprintf(file_out, ");\n");
 }
 
+void insert_hooks(FILE* file_out, char *return_type, char *function_name, char full_arg_list[16][STR_SIZE], int full_arg_list_idx, bool* file_modified) {
+    bool hook_inserted = false;
+    char return_type_[STR_SIZE] = "";
+    copy_before_lastword(return_type, return_type_);
+    
+    bool function_return = false;
+    if (strncmp(return_type, "void", 4) != 0) {
+        function_return = true;
+    }
+
+    ListElement *element = list_hook.head;
+    while (element) {
+        Hook *hook = element->data;
+        if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
+            if (!hook_inserted) {
+                hook_inserted = insert_header_hook(file_out);
+            }
+            // printf("Hook found: %s %s %s %d\n", hook->file, hook->function, hook->at, hook->num_args);
+            insert_function(file_out, hook, full_arg_list);
+        }
+        element = element->next;
+    }
+    if (hook_inserted) {
+        insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
+    }
+    ListElement *element_ = list_hook.head;
+    while (element_) {
+        Hook *hook = element_->data;
+        if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
+            if (!hook_inserted) {
+                hook_inserted = insert_header_hook(file_out);
+                insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
+            }
+            // printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
+            insert_function(file_out, hook, full_arg_list);
+        }
+        element_ = element_->next;
+    }
+    if (hook_inserted) {
+        if (function_return){
+            fprintf(file_out, "    return result;\n}\n\n%soriginal_%s(", return_type_, function_name);
+        } else {
+            fprintf(file_out, "}\n\n%soriginal_%s(", return_type_, function_name);
+        }
+        for (int i = 0; i <= full_arg_list_idx; i++) {
+            fprintf(file_out, "%s", full_arg_list[i]);
+            if (i < full_arg_list_idx) {
+                fprintf(file_out, ", ");
+            }
+        }
+        fprintf(file_out, ") ");
+    }
+    file_modified = file_modified || hook_inserted;
+}
+
 bool insert_header_hook(FILE* file) {
     fwrite("{\n", 1, 2, file);
     return true;
@@ -211,6 +266,7 @@ char* get_and_apply_hooks(char *file_name) {
 
     char return_type[STR_SIZE] = "";
     int return_type_len = 0;
+
     bool in_return_type = true;
     bool start_get_return_type = false;
 
@@ -309,59 +365,8 @@ char* get_and_apply_hooks(char *file_name) {
                 if (char_ == '{') { // start of code block
                     if (parenthesis_count == 0 && bracket_count == 0 && function_name[0] != '\0') {
                         // printf("Function: %s\n", function_name);
-                        bool hook_inserted = false;
                         in_function = true;
-                        char return_type_[STR_SIZE] = "";
-                        copy_before_lastword(return_type, return_type_);
-                        
-                        bool function_return = false;
-                        if (strncmp(return_type, "void", 4) != 0) {
-                            function_return = true;
-                        }
-
-                        ListElement *element = list_hook.head;
-                        while (element) {
-                            Hook *hook = element->data;
-                            if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
-                                if (!hook_inserted) {
-                                    hook_inserted = insert_header_hook(file_out);
-                                }
-                                // printf("Hook found: %s %s %s %d\n", hook->file, hook->function, hook->at, hook->num_args);
-                                insert_function(file_out, hook, full_arg_list);
-                            }
-                            element = element->next;
-                        }
-                        if (hook_inserted) {
-                            insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
-                        }
-                        ListElement *element_ = list_hook.head;
-                        while (element_) {
-                            Hook *hook = element_->data;
-                            if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
-                                if (!hook_inserted) {
-                                    hook_inserted = insert_header_hook(file_out);
-                                    insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
-                                }
-                                // printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
-                                insert_function(file_out, hook, full_arg_list);
-                            }
-                            element_ = element_->next;
-                        }
-                        if (hook_inserted) {
-                            if (function_return){
-                                fprintf(file_out, "    return result;\n}\n\n%soriginal_%s(", return_type_, function_name);
-                            } else {
-                                fprintf(file_out, "}\n\n%soriginal_%s(", return_type_, function_name);
-                            }
-                            for (int i = 0; i <= full_arg_list_idx; i++) {
-                                fprintf(file_out, "%s", full_arg_list[i]);
-                                if (i < full_arg_list_idx) {
-                                    fprintf(file_out, ", ");
-                                }
-                            }
-                            fprintf(file_out, ") ");
-                        }
-                        file_modified = file_modified || hook_inserted;
+                        insert_hooks(file_out, return_type, function_name, full_arg_list, full_arg_list_idx, &file_modified);
                     }
                     bracket_count++;
                 }

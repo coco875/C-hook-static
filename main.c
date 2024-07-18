@@ -38,7 +38,6 @@ List list_hook = {NULL, NULL, 0};
 
 typedef struct {
     char source[STR_SIZE];
-    char file[STR_SIZE];
     char function[STR_SIZE];
     char at[STR_SIZE];
     bool cancelable;
@@ -63,6 +62,15 @@ void load_list_hook(char * file, char * source) {
     }
 }
 
+void free_list_hook() {
+    ListElement *element = list_hook.head;
+    while (element) {
+        free(element->data);
+        element = element->next;
+    }
+    list_free(&list_hook);
+}
+
 void save_list_hook(char * file) {
     FILE *file_ = fopen(file, "wb");
     ListElement *element = list_hook.head;
@@ -77,7 +85,7 @@ void print_list_hook() {
     ListElement *element = list_hook.head;
     while (element) {
         Hook *hook = element->data;
-        printf("Hook: %s %s %s\n", hook->file, hook->function, hook->at);
+        printf("<Hook function=%s arg=%d at=%s cancelable=%d priority=%d>\n", hook->function, hook->num_args,hook->at, hook->cancelable, hook->priority);
         element = element->next;
     }
 }
@@ -143,82 +151,86 @@ void insert_arg(FILE* file, char full_arg_list[16][STR_SIZE], int num_args) {
     }
 }
 
-void insert_function(FILE* file_out, Hook *hook, char full_arg_list[16][STR_SIZE]){
-    fprintf(file_out, "    void %s(", hook->function_call);
+void header_function(FILE* file_out, Hook *hook, char full_arg_list[16][STR_SIZE], char *return_type) {
+    if (!hook->cancelable && strncmp(return_type, "void", 4) == 0) {
+        fprintf(file_out, "    void %s(", hook->function_call);
+    } else {
+        fprintf(file_out, "    %s%s(", return_type,hook->function_call);
+    }
     for (int i = 0; i < hook->num_args; i++) {
         fprintf(file_out, "%s", full_arg_list[i]);
         if (i < hook->num_args-1) {
             fprintf(file_out, ", ");
         }
     }
-    fprintf(file_out, ");\n");
-
-    fprintf(file_out, "    %s(", hook->function_call);
-    insert_arg(file_out, full_arg_list, hook->num_args);
+    if (hook->cancelable) {
+        if (hook->num_args > 0) {
+            fprintf(file_out, ", ");
+        }
+        fprintf(file_out, "bool *cancel");
+    }
     fprintf(file_out, ");\n");
 }
 
-void insert_hooks(FILE* file_out, char *return_type, char *function_name, char full_arg_list[16][STR_SIZE], int full_arg_list_idx, bool* file_modified) {
-    bool hook_inserted = false;
-    char return_type_[STR_SIZE] = "";
-    copy_before_lastword(return_type, return_type_);
+void insert_function(FILE* file_out, Hook *hook, char full_arg_list[16][STR_SIZE], char *return_type){
+    // header_function(file_out, hook, full_arg_list, return_type);
     
-    bool function_return = false;
-    if (strncmp(return_type, "void", 4) != 0) {
-        function_return = true;
-    }
+    if (hook->cancelable) {
+        if (strncmp(return_type, "void", 4) == 0) {
+            fprintf(file_out, "    ");
+        } else {
+            fprintf(file_out, "    result = ");
+        }
+        fprintf(file_out, "%s(", hook->function_call);
+        if (strncmp(full_arg_list[0], "oid", 3) != 0) {
+            insert_arg(file_out, full_arg_list, hook->num_args);
+        }
+        if (hook->num_args > 0) {
+            fprintf(file_out, ", ");
+        }
+        fprintf(file_out, "&cancel);\n");
 
+        fprintf(file_out, "    if (cancel) { return");
+        if (strncmp(return_type, "void", 4) != 0) {
+            fprintf(file_out, " result");
+        }
+        fprintf(file_out, "; }\n");
+    } else {
+        fprintf(file_out, "    %s(", hook->function_call);
+        if (strncmp(full_arg_list[0], "oid", 3) != 0) {
+            insert_arg(file_out, full_arg_list, hook->num_args);
+        }
+        fprintf(file_out, ");\n");
+    }
+}
+
+bool detect_and_prepare_hook(FILE* file, char *function_name, char full_arg_list[16][STR_SIZE], char *return_type_) {
+    bool have_inserted = false;
+    
     ListElement *element = list_hook.head;
+    bool cancel_insert = false;
     while (element) {
         Hook *hook = element->data;
-        if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
-            if (!hook_inserted) {
-                hook_inserted = insert_header_hook(file_out);
+        if (strcmp(hook->function, function_name) == 0) {
+            if (!have_inserted) {
+                have_inserted = true;
+                fwrite("{\n", 1, 2, file);
+                if (strncmp(return_type_, "void", 4) != 0) {
+                    fprintf(file, "    %sresult;\n", return_type_);
+                }
             }
-            // printf("Hook found: %s %s %s %d\n", hook->file, hook->function, hook->at, hook->num_args);
-            insert_function(file_out, hook, full_arg_list);
+            header_function(file, hook, full_arg_list, return_type_);
+            cancel_insert |= hook->cancelable;
         }
         element = element->next;
     }
-    if (hook_inserted) {
-        insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
+    if (cancel_insert) {
+        fprintf(file, "    bool cancel = FALSE;\n");
     }
-    ListElement *element_ = list_hook.head;
-    while (element_) {
-        Hook *hook = element_->data;
-        if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
-            if (!hook_inserted) {
-                hook_inserted = insert_header_hook(file_out);
-                insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
-            }
-            // printf("Hook found: %s %s %s\n", hook->file, hook->function, hook->at);
-            insert_function(file_out, hook, full_arg_list);
-        }
-        element_ = element_->next;
-    }
-    if (hook_inserted) {
-        if (function_return){
-            fprintf(file_out, "    return result;\n}\n\n%soriginal_%s(", return_type_, function_name);
-        } else {
-            fprintf(file_out, "}\n\n%soriginal_%s(", return_type_, function_name);
-        }
-        for (int i = 0; i <= full_arg_list_idx; i++) {
-            fprintf(file_out, "%s", full_arg_list[i]);
-            if (i < full_arg_list_idx) {
-                fprintf(file_out, ", ");
-            }
-        }
-        fprintf(file_out, ") ");
-    }
-    file_modified = file_modified || hook_inserted;
+    return have_inserted;
 }
 
-bool insert_header_hook(FILE* file) {
-    fwrite("{\n", 1, 2, file);
-    return true;
-}
-
-void insert_original_function(FILE* file, char *return_type, char* function_name,char full_arg_list[16][STR_SIZE], int full_arg_list_idx, bool function_return) {
+void insert_original_function_header(FILE* file, char *return_type, char* function_name,char full_arg_list[16][STR_SIZE], int full_arg_list_idx){
     fprintf(file, "    %soriginal_%s(", return_type, function_name);
     for (int i = 0; i <= full_arg_list_idx; i++) {
         fprintf(file, "%s", full_arg_list[i]);
@@ -227,14 +239,70 @@ void insert_original_function(FILE* file, char *return_type, char* function_name
         }
     }
     fprintf(file, ");\n");
+}
+
+void insert_original_function(FILE* file, char *return_type, char* function_name,char full_arg_list[16][STR_SIZE], int full_arg_list_idx, bool function_return) {
+    // insert_original_function_header(file, return_type, function_name, full_arg_list, full_arg_list_idx);
 
     if (function_return) {
-        fprintf(file, "    %sresult = original_%s(", return_type, function_name);
+        fprintf(file, "    result = original_%s(", function_name);
     } else {
         fprintf(file, "    original_%s(", function_name);
     }
-    insert_arg(file, full_arg_list, full_arg_list_idx+1);
+    if (strncmp(full_arg_list[0], "void", 3) != 0) {
+        insert_arg(file, full_arg_list, full_arg_list_idx+1);
+    }
     fprintf(file, ");\n");
+}
+
+void insert_hooks(FILE* file_out, char *return_type, char *function_name, char full_arg_list[16][STR_SIZE], int full_arg_list_idx, bool* file_modified) {
+    char return_type_[STR_SIZE] = "";
+    copy_before_lastword(return_type, return_type_);
+    
+    bool function_return = false;
+    if (strncmp(return_type, "void", 4) != 0) {
+        function_return = true;
+    }
+
+    if (!detect_and_prepare_hook(file_out, function_name, full_arg_list, return_type_)) {
+        return;
+    }
+
+    insert_original_function_header(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx);
+
+    ListElement *element = list_hook.head;
+    while (element) {
+        Hook *hook = element->data;
+        if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_CALL)") == 0) {
+            insert_function(file_out, hook, full_arg_list, return_type_);
+        }
+        element = element->next;
+    }
+    insert_original_function(file_out, return_type_, function_name, full_arg_list, full_arg_list_idx, function_return);
+    
+    element = list_hook.head;
+    while (element) {
+        Hook *hook = element->data;
+        if (strcmp(hook->function, function_name) == 0 && strcmp(hook->at, "AT(FUNCTION_RETURN)") == 0) {
+            insert_function(file_out, hook, full_arg_list, return_type_);
+        }
+        element = element->next;
+    }
+    
+    if (function_return){
+        fprintf(file_out, "    return result;\n}\n\n%soriginal_%s(", return_type_, function_name);
+    } else {
+        fprintf(file_out, "}\n\n%soriginal_%s(", return_type_, function_name);
+    }
+    for (int i = 0; i <= full_arg_list_idx; i++) {
+        fprintf(file_out, "%s", full_arg_list[i]);
+        if (i < full_arg_list_idx) {
+            fprintf(file_out, ", ");
+        }
+    }
+    fprintf(file_out, ") ");
+    
+    *file_modified = true;
 }
 
 char* get_and_apply_hooks(char *file_name) {
@@ -243,7 +311,7 @@ char* get_and_apply_hooks(char *file_name) {
     // char file_out_name[] = "test/src/main.out.c";
     char *file_out_name = malloc(strlen(file_name)+5);
     gen_out_name(file_name, file_out_name);
-    FILE *file_out = fopen(file_out_name, "w");
+    FILE *file_out = fopen(file_out_name, "wb");
 
     load_list_hook("hook.bin", file_name);
 
@@ -292,18 +360,21 @@ char* get_and_apply_hooks(char *file_name) {
                     if (in_hook_level == parenthesis_count && in_hook) {
                         in_hook = false;
 
-                        strcpy(hook->file, full_arg_list[0]);
-                        strcpy(hook->function, full_arg_list[1]);
-                        strcpy(hook->at, full_arg_list[2]);
+                        strcpy(hook->function, full_arg_list[0]);
+                        strcpy(hook->at, full_arg_list[1]);
 
-                        if (full_arg_list_idx > 3) {
-                            hook->cancelable = strcmp(full_arg_list[3], "TRUE") == 0 || strcmp(full_arg_list[3], "true") == 0;
+                        for (int i = 0; i <= full_arg_list_idx; i++) {
+                            printf("Arg: %s\n", full_arg_list[i]);
+                        }
+
+                        if (full_arg_list_idx > 1) {
+                            hook->cancelable = (strncmp(full_arg_list[2], "TRUE", 4) == 0) || (strncmp(full_arg_list[2], "true", 4) == 0);
                         } else {
                             hook->cancelable = false;
                         }
 
-                        if (full_arg_list_idx > 4) {
-                            hook->priority = atoi(full_arg_list[4]);
+                        if (full_arg_list_idx > 2) {
+                            hook->priority = atoi(full_arg_list[3]);
                         } else {
                             hook->priority = 0;
                         }
@@ -364,9 +435,26 @@ char* get_and_apply_hooks(char *file_name) {
 
                 if (char_ == '{') { // start of code block
                     if (parenthesis_count == 0 && bracket_count == 0 && function_name[0] != '\0') {
-                        // printf("Function: %s\n", function_name);
                         in_function = true;
                         insert_hooks(file_out, return_type, function_name, full_arg_list, full_arg_list_idx, &file_modified);
+                    }
+                    if (finalise_hook) {
+                        strcpy(hook->function_call, function_name);
+                        hook->num_args = full_arg_list_idx;
+                        if (full_arg_list[full_arg_list_idx][0] != '\0') {
+                            hook->num_args++;
+                        }
+                        if (hook->cancelable) {
+                            hook->num_args--;
+                        }
+                        printf("functions name: %s\n", hook->function_call);
+                        for (int i = 0; i <= full_arg_list_idx; i++) {
+                            printf("Arg: %s\n", full_arg_list[i]);
+                        }
+                        print_list_hook();
+                        list_append(&list_hook, hook);
+                        hook = NULL;
+                        finalise_hook = false;
                     }
                     bracket_count++;
                 }
@@ -386,19 +474,14 @@ char* get_and_apply_hooks(char *file_name) {
                         strcpy(function_name, word_name);
                     }
                     if (strcmp(word_name, HOOK_KEYWORD) == 0) {
-                        // printf("Hook detected\n");
+                        printf("Hook detected\n");
+                        if (hook != NULL) {
+                            free(hook);
+                        }
                         hook = malloc(sizeof(Hook));
                         strcpy(hook->source, file_name);
                         in_hook = true;
                         in_hook_level = parenthesis_count;
-                    }
-                    if (finalise_hook) {
-                        strcpy(hook->function_call, word_name);
-                        hook->num_args = full_arg_list_idx+1;
-                        // printf("\nHook: %s %s %s %s\n", hook->file, hook->function, hook->at, hook->function_call);
-                        list_append(&list_hook, hook);
-                        hook = NULL;
-                        finalise_hook = false;
                     }
                     parenthesis_count++;
                 }
@@ -425,24 +508,73 @@ char* get_and_apply_hooks(char *file_name) {
     }
 
     save_list_hook("hook.bin");
+    free_list_hook();
     fclose(file);
     fclose(file_out);
 
     printf("File modified: %s %d\n", file_name,file_modified);
 
     if (!file_modified) {
-        if (remove(file_out_name) == 0) {
-            printf("File removed: %s\n", file_out_name);
-        } else {
+        if (remove(file_out_name) != 0) {
             printf("File not removed: %s\n", file_out_name);
             exit(1);
         }
+        free(file_out_name);
         return file_name;
     }
     return file_out_name;
 }
 
+bool custom_action(int argc, char *argv[]) {
+    if (strcmp(argv[1], "clean") == 0) {
+        if (remove("hook.bin") != 0) {
+            printf("File not removed: hook.bin\n");
+            exit(1);
+        }
+        return true;
+    }
+    if (strcmp(argv[1], "remove") == 0) {
+        if (argc < 3) {
+            printf("Usage: hook remove [file]\n");
+            exit(1);
+        }
+        FILE *file_ = fopen("hook.bin", "rb");
+        if (!file_) {
+            exit(1);
+        }
+        Hook hook;
+        for (int size = 0; (size = fread(&hook, 1, sizeof(Hook), file_)) > 0; ) {
+            bool skip = false;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(hook.source, argv[i]) == 0) {
+                    printf("Removing: %s\n", hook.function_call);
+                    skip = true;
+                    break;
+                }
+            }
+            if (skip) {
+                continue;
+            }
+            Hook *hook_ = malloc(sizeof(Hook));
+            memcpy(hook_, &hook, sizeof(Hook));
+            list_append(&list_hook, hook_);
+        }
+        save_list_hook("hook.bin");
+        return true;
+    }
+    return false;
+}
+
 int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("Usage: hook [args]\n");
+        return 1;
+    }
+
+    if (custom_action(argc, argv)) {
+        return 0;
+    }
+
     char **new_arg = malloc(sizeof(char*) * argc);
 
     for (int i = 1; i < argc; i++) {
@@ -460,8 +592,9 @@ int main(int argc, char *argv[]) {
         len_command += strlen(new_arg[i])+1;
     }
 
-    char *command = malloc(len_command+4);
-    int command_idx = 0;
+    char *command = malloc(len_command+12);
+    strcpy(command, "sh -c \"");
+    int command_idx = 7;
     for (int i = 0; i < argc-1; i++) {
         for (int j = 0; j < strlen(new_arg[i]); j++) {
             command[command_idx++] = new_arg[i][j];
@@ -469,10 +602,12 @@ int main(int argc, char *argv[]) {
         command[command_idx++] = ' ';
     }
 
-    command[command_idx] = '\0'; //'>';
-    command[command_idx+1] = '&';
-    command[command_idx+2] = '2';
-    command[command_idx+3] = '\0';
+    command[command_idx] = '"'; //'>';
+    command[command_idx+1] = '\0'; //'>';
+    // command[command_idx] = '>';
+    // command[command_idx+1] = '&';
+    // command[command_idx+2] = '2';
+    // command[command_idx+3] = '\0';
 
     printf("Command: %s\n", command);
     

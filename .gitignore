@@ -160,3 +160,8 @@ mingw64/
 *.o
 .vscode/settings.json
 hook.bin
+!plugin
+!plugin/Makefile
+plugin/*.dll
+plugin/*.so
+plugin/*.S

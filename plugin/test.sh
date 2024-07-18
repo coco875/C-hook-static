@@ -1,0 +1,1 @@
+gcc code.c -fplugin=plugin.dll -S -o code.S
